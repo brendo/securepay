@@ -33,7 +33,8 @@
 			'amount' => '',
 			'purchaseOrderNo' => '',
 			'cardNumber' => '',
-			'expiryDate' => ''
+			'expiryDate' => '',
+			'cvv' => ''
 		);
 		
 		private $required_fields = array(
@@ -197,6 +198,7 @@
 				
 				$CreditCardInfo->appendChild(new XMLElement('cardNumber',$request_array['cardNumber']));
 				$CreditCardInfo->appendChild(new XMLElement('expiryDate',$request_array['expiryDate']));
+				$CreditCardInfo->appendChild(new XMLElement('cvv', $request_array['cvv']));
 				
 				$Txn->appendChild($CreditCardInfo);
 				
@@ -226,7 +228,6 @@
 
 				// Generate status result:
 				$securepay_transaction_id   = $securepay_result_xpath->evaluate('string(/SecurePayMessage/Payment/TxnList/Txn/txnID)');
-				$bank_authorisation_id = '';
 
 				if (strtolower($securepay_result_xpath->evaluate('string(/SecurePayMessage/Payment/TxnList/Txn/approved)')) == 'yes') {
 					$securepay_approved = true;
@@ -239,7 +240,6 @@
 				
 				return(array(
 					'pgi-transaction-id'=> $securepay_transaction_id,
-					'bank-authorisation-id'=> $bank_authorisation_id,
 					'status'		=> ($securepay_approved ? 'Approved' : 'Declined'),
 					'response-code'	=> $securepay_error_code,
 					'response-message'	=> $securepay_error_message
