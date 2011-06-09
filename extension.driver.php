@@ -32,8 +32,9 @@
 			'password' => '',
 			'RequestType' => 'Payment',
 			'txnType' => '0',
-			'txnSource' => '0',
+			'txnSource' => '23',
 			'amount' => '',
+			'currency' => 'AUD',
 			'purchaseOrderNo' => '',
 			'cardNumber' => '',
 			'expiryDate' => '',
@@ -254,7 +255,8 @@
 			$missing_fields = array();
 			$error = null;
 			foreach (Extension_SecurePay::$required_fields as $field_name) {
-				if (!array_key_exists($field_name, $request_array) || empty($request_array[$field_name])) {
+				// Don't use empty as sometimes '0' is a valid value
+				if (!array_key_exists($field_name, $request_array) || $request_array[$field_name] == '') {
 					$missing_fields[] = $field_name;
 					$valid_data = false;
 				}
@@ -315,7 +317,7 @@
 			$curl = new Gateway;
 			$curl->init(self::getGatewayURI());
 			$curl->setopt('POST', true);
-			$curl->setopt('POSTFIELDS', $SecurePayMessage->asXML());
+			$curl->setopt('POSTFIELDS', $SecurePayMessage->generate(true));
 
 			$curl_result = $curl->exec();
 			$info = $curl->getInfoLast();
@@ -338,19 +340,51 @@
 				$securepay_result->formatOutput = true;
 				$securepay_result->loadXML($curl_result);
 				$securepay_result_xpath = new DOMXPath($securepay_result);
+/*
+				header('text/xml');
+				echo $curl_result;
+				exit;
+*/
+				// So even thought SecurePay replied, we've got to check if
+				// they actually understood what we asked them.
+				$securepay_code = $securepay_result_xpath->evaluate('string(/SecurePayMessage/Status/statusCode)');
 
-				// Generate status result:
-				$securepay_transaction_id = $securepay_result_xpath->evaluate('string(/SecurePayMessage/Payment/TxnList/Txn/txnID)');
+				if($securepay_code != '000') {
+					// Return a `GATEWAY_ERROR`
+					return(array(
+						'status' => __('SecurePay error'),
+						'response-code' => $securepay_code,
+						'response-message' => $securepay_result_xpath->evaluate('string(/SecurePayMessage/Status/statusDescription)')
+					));
+				}
 
-				$securepay_code = $securepay_result_xpath->evaluate('string(/SecurePayMessage/Payment/TxnList/Txn/responseCode)');;
-				$securepay_message = $securepay_result_xpath->evaluate('string(/SecurePayMessage/Payment/TxnList/Txn/responseText)');
+				// A transaction actually occured, so the status context has
+				// shifted to the Bank response
+				else {
+					// Generate status result:
+					$txn_code = $securepay_result_xpath->evaluate('string(/SecurePayMessage/Payment/TxnList/Txn/responseCode)');
+					$txn_message = $securepay_result_xpath->evaluate('string(/SecurePayMessage/Payment/TxnList/Txn/responseText)');
 
-				return(array(
-					'status' => in_array($eway_code, Extension_SecurePay::$approved_codes) ? __('Approved') : __('Declined'),
-					'response-code' => $securepay_code,
-					'response-message' => $securepay_message,
-					'pgi-transaction-id' => $securepay_transaction_id,
-				));
+					$return = array();
+
+					if(!in_array($txn_code, Extension_SecurePay::$approved_codes)) {
+						$return['status'] = __('Declined');
+					}
+					else {
+						$return['status'] = __('Approved');
+						$return['pgi-transaction-id'] = $securepay_result_xpath->evaluate('string(/SecurePayMessage/Payment/TxnList/Txn/txnID)');
+					}
+
+					$return = array_merge(
+						$return,
+						array(
+							'response-code' => $txn_code,
+							'response-message' => $txn_message
+						)
+					);
+
+					return $return;
+				}
 			}
 		}
 	}
